@@ -1,49 +1,37 @@
+import os
 import asyncio
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 from datetime import datetime
 
-# Для Binance API
-from binance.client import Client as BinanceClient
-from binance.exceptions import BinanceAPIException
+# Важливо: Ми видалили імпорт BinanceClient, оскільки будемо використовувати requests для публічних даних.
+# from binance.client import Client as BinanceClient
+# from binance.exceptions import BinanceAPIException
 
 # --- ВАШІ КОНФІГУРАЦІЇ ---
-# Ваш токен Telegram Бота, отриманий від @BotFather
-BOT_TOKEN = '7864681243:AAGcoKhWmbV3hIov43phiOnWKJ0RW3obhWw' 
-
-# Ваш API ключ Alpha Vantage, отриманий з https://www.alphavantage.co/support/#api-key
-ALPHA_VANTAGE_API_KEY = "4966249ON65O2U9F" 
+# Тепер бот отримує токен і ключ з "змінних оточення" Render.com, а не з коду.
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY')
 # --- КІНЕЦЬ КОНФІГУРАЦІЙ ---
 
-# Ініціалізація клієнта Binance (для публічних даних ключі не потрібні)
-# Якщо колись знадобляться приватні ключі для торгівлі, їх треба буде вказати тут:
-# binance_client = BinanceClient("ВАШ_BINANCE_API_KEY", "ВАШ_BINANCE_API_СЕКРЕТ")
-binance_client = BinanceClient("", "") # Пусті рядки, оскільки ключі не потрібні для публічних даних
-
-# URL для отримання щоденних даних Forex з Alpha Vantage
-ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
-
 # Список доступних валютних пар для кнопок
-# 'callback_data' - це дані, які бот отримає, коли користувач натисне кнопку.
-# Ми використовуємо префікси, щоб розрізняти Форекс і Крипто пари.
 AVAILABLE_PAIRS = {
-    # Основні Форекс пари (додані з розбитими символами для Alpha Vantage)
+    # Основні Форекс пари
     "EUR/USD (Форекс)": "forex_EURUSD",
     "GBP/USD (Форекс)": "forex_GBPUSD",
     "USD/JPY (Форекс)": "forex_USDJPY",
     "USD/CHF (Форекс)": "forex_USDCHF",
     "AUD/USD (Форекс)": "forex_AUDUSD",
     "USD/CAD (Форекс)": "forex_USDCAD",
-    ""
     "NZD/USD (Форекс)": "forex_NZDUSD",
     "EUR/GBP (Форекс)": "forex_EURGBP",
     "EUR/JPY (Форекс)": "forex_EURJPY",
-    "EUR/CAD (Форекс)": "forex_EURCAD", 
-    "USD/RUB (Форекс)": "forex_USDRUB", # Додано, якщо цікаво, але Alpha Vantage може мати обмеження
-    "EUR/RUB (Форекс)": "forex_EURRUB", # Додано, якщо цікаво, але Alpha Vantage може мати обмеження
+    "EUR/CAD (Форекс)": "forex_EURCAD",
+    "USD/RUB (Форекс)": "forex_USDRUB",
+    "EUR/RUB (Форекс)": "forex_EURRUB",
 
-    # Основні Крипто пари (на Binance їхні символи завжди разом, наприклад BTCUSDT)
+    # Основні Крипто пари
     "BTC/USDT (Крипто)": "crypto_BTCUSDT",
     "ETH/USDT (Крипто)": "crypto_ETHUSDT",
     "BNB/USDT (Крипто)": "crypto_BNBUSDT",
@@ -60,7 +48,7 @@ AVAILABLE_PAIRS = {
     "MATIC/USDT (Крипто)": "crypto_MATICUSDT",
     "TRX/USDT (Крипто)": "crypto_TRXUSDT",
     "SHIB/USDT (Крипто)": "crypto_SHIBUSDT",
-    "DOGE/BUSD (Крипто)": "crypto_DOGEBUSD", # Приклад іншої базової валюти, якщо є на Binance
+    "DOGE/BUSD (Крипто)": "crypto_DOGEBUSD",
     "BTC/BUSD (Крипто)": "crypto_BTCBUSD",
     "ETH/BUSD (Крипто)": "crypto_ETHBUSD",
     "XRP/BUSD (Крипто)": "crypto_XRPBUSD",
@@ -133,18 +121,26 @@ def analyze_forex_signal(forex_data):
     except Exception as e:
         return f"Помилка аналізу сигналу: {e}"
 
-# --- НОВІ ФУНКЦІЇ ДЛЯ BINANCE ---
+# --- ОНОВЛЕНІ ФУНКЦІЇ ДЛЯ BINANCE (використання прямого запиту) ---
 
 def get_binance_klines(symbol, interval='1d', limit=2):
     """
-    Отримує дані про свічки (Klines) з Binance API.
-    Ми беремо 2 свічки (останню та попередню).
+    Отримує дані про свічки (Klines) з Binance API, використовуючи прямий HTTP-запит.
     """
+    base_url = "https://api.binance.com/api/v3/klines"
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit
+    }
+    
     try:
-        klines = binance_client.get_historical_klines(symbol, interval, limit=limit)
+        response = requests.get(base_url, params=params)
+        response.raise_for_status()
+        klines = response.json()
         return klines
-    except BinanceAPIException as e:
-        print(f"Помилка Binance API для {symbol}: {e}")
+    except requests.exceptions.RequestException as e:
+        print(f"Помилка запиту до Binance API: {e}")
         return None
     except Exception as e:
         print(f"Невідома помилка при отриманні даних Binance для {symbol}: {e}")
@@ -180,15 +176,13 @@ def analyze_crypto_signal(klines):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обробляє команду /start та показує кнопки вибору пар."""
     keyboard_buttons = []
-    # Створюємо кнопки з доступних пар
-    # Розбиваємо на кілька рядків, щоб кнопки не були занадто широкими
     row = []
     for text, callback_data in AVAILABLE_PAIRS.items():
         row.append(InlineKeyboardButton(text, callback_data=callback_data))
-        if len(row) >= 2: # 2 кнопки в рядку
+        if len(row) >= 2:
             keyboard_buttons.append(row)
             row = []
-    if row: # Додати залишок, якщо є
+    if row:
         keyboard_buttons.append(row)
     
     reply_markup = InlineKeyboardMarkup(keyboard_buttons)
@@ -201,21 +195,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обробляє натискання на кнопки під повідомленням."""
     query = update.callback_query
-    await query.answer() # Відповідаємо на callback, щоб прибрати "годинник" з кнопки
+    await query.answer()
 
     callback_data = query.data
     
-    # Розбиваємо дані зворотного виклику, щоб визначити тип пари та її символ
     parts = callback_data.split('_')
-    pair_type = parts[0] # 'forex' або 'crypto'
-    symbol = parts[1]    # 'EURCAD', 'BTCUSDT' тощо
+    pair_type = parts[0]
+    symbol = parts[1]
 
-    await query.edit_message_text(f"Аналізую ринок **{symbol}**, зачекайте...") # Оновлюємо повідомлення
+    await query.edit_message_text(f"Аналізую ринок **{symbol}**, зачекайте...")
 
     if pair_type == "forex":
-        # Alpha Vantage очікує розділення на from_currency та to_currency
-        if len(symbol) != 6: # Перевірка формату наприклад "EURUSD" має бути 6 символів
-            message = f"Помилка: Неправильний формат символу Форекс-пари '{symbol}'. Очікується 6 символів (наприклад, EURUSD)."
+        if len(symbol) != 6:
+            message = f"Помилка: Неправильний формат символу Форекс-пари '{symbol}'."
             await query.edit_message_text(message)
             return
 
@@ -235,32 +227,32 @@ async def handle_button_click(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Мій простий аналіз каже: **{signal}**\n\n"
                 "Пам'ятайте: це дуже спрощений аналіз і не є фінансовою порадою!"
             )
-            await query.edit_message_text(message, reply_markup=query.message.reply_markup) # Зберігаємо кнопки
+            await query.edit_message_text(message, reply_markup=query.message.reply_markup)
         else:
             await query.edit_message_text(
                 f"Не вдалося отримати дані для **{symbol}**. Можливо, проблема з API ключем, лімітом запитів Alpha Vantage або інтернет-з'єднанням.",
-                reply_markup=query.message.reply_markup # Зберігаємо кнопки
+                reply_markup=query.message.reply_markup
             )
     elif pair_type == "crypto":
         klines = get_binance_klines(symbol)
 
         if klines:
             signal = analyze_crypto_signal(klines)
-            latest_close_price = float(klines[-1][4]) # Індекс 4 - це ціна закриття
+            latest_close_price = float(klines[-1][4])
 
             message = (
                 f"Останні дані **{symbol}** (закриття): {latest_close_price}\n"
                 f"Мій простий аналіз каже: **{signal}**\n\n"
                 "Пам'ятайте: це дуже спрощений аналіз і не є фінансовою порадою!"
             )
-            await query.edit_message_text(message, reply_markup=query.message.reply_markup) # Зберігаємо кнопки
+            await query.edit_message_text(message, reply_markup=query.message.reply_markup)
         else:
             await query.edit_message_text(
                 f"Не вдалося отримати дані для **{symbol}**. Перевірте правильність символу або спробуйте пізніше.",
-                reply_markup=query.message.reply_markup # Зберігаємо кнопки
+                reply_markup=query.message.reply_markup
             )
     else:
-        await query.edit_message_text("Невідома пара. Будь ласка, оберіть зі списку.", reply_markup=query.message.reply_markup) # Зберігаємо кнопки
+        await query.edit_message_text("Невідома пара. Будь ласка, оберіть зі списку.", reply_markup=query.message.reply_markup)
 
 
 # --- Основна функція для запуску бота ---
